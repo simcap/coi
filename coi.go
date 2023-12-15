@@ -39,22 +39,33 @@ func NewFunctionsAnalyser(c Config) *analysis.Analyzer {
 	}
 }
 
-func NewStringAnalyser(Config) *analysis.Analyzer {
+func NewStringAnalyser(c Config) *analysis.Analyzer {
 	return &analysis.Analyzer{
 		Name:     "strings",
 		Doc:      "Collect literal strings values",
 		Requires: []*analysis.Analyzer{inspect.Analyzer},
-		Run:      stringValues(),
+		Run:      stringValues(c),
 	}
 }
 
 type Config struct {
-	Methods   [][2]string
-	Functions [][2]string
-	Packages  []string
+	Methods    [][2]string
+	Functions  [][2]string
+	Packages   []string
+	ReportChan chan Item
 }
 
-func stringValues() func(*analysis.Pass) (interface{}, error) {
+type Item struct {
+	Category string
+	Position token.Position
+	Value    string
+}
+
+func (i Item) String() string {
+	return fmt.Sprintf("%s: %s: %s", i.Category, i.Position, i.Value)
+}
+
+func stringValues(c Config) func(*analysis.Pass) (interface{}, error) {
 	return func(pass *analysis.Pass) (interface{}, error) {
 		inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
@@ -68,6 +79,7 @@ func stringValues() func(*analysis.Pass) (interface{}, error) {
 							Pos:      lit.ValuePos,
 							Message:  fmt.Sprintf("string: %s", lit.Value),
 						})
+						c.ReportChan <- Item{Category: "strings", Value: lit.Value, Position: pass.Fset.Position(lit.Pos())}
 						return false
 					}
 				}
@@ -86,17 +98,21 @@ func methods(c Config) func(*analysis.Pass) (interface{}, error) {
 		inspect.WithStack(nil, func(n ast.Node, push bool, stack []ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok {
 				fun, _ := call.Fun.(*ast.SelectorExpr)
-				if t := pass.TypesInfo.Types[fun.X].Type; t != nil {
-					for _, m := range c.Methods {
-						typ, method := m[0], m[1]
-						if t.String() == typ {
-							if fun.Sel.Name == method {
-								pass.Report(analysis.Diagnostic{
-									Pos:      call.Pos(),
-									Category: "methods",
-									Message:  fmt.Sprintf("%s.%s(%s)", typ, method, argsAsCommaSeparatedValues(call.Args)),
-								})
-								return false
+				if fun != nil {
+					if t := pass.TypesInfo.Types[fun.X].Type; t != nil {
+						for _, m := range c.Methods {
+							typ, method := m[0], m[1]
+							if t.String() == typ {
+								if fun.Sel.Name == method {
+									msg := fmt.Sprintf("%s.%s(%s)", typ, method, argsAsCommaSeparatedValues(call.Args))
+									pass.Report(analysis.Diagnostic{
+										Pos:      call.Pos(),
+										Category: "methods",
+										Message:  msg,
+									})
+									c.ReportChan <- Item{Category: "methods", Value: msg, Position: pass.Fset.Position(call.Pos())}
+									return false
+								}
 							}
 						}
 					}
@@ -118,14 +134,16 @@ func functions(c Config) func(*analysis.Pass) (interface{}, error) {
 				fun, _ := call.Fun.(*ast.SelectorExpr)
 				for _, f := range c.Functions {
 					pkg, name := f[0], f[1]
-					if fun.Sel.Name == name {
+					if fun != nil && fun.Sel != nil && fun.Sel.Name == name {
 						if p, isPackage := pass.TypesInfo.Uses[fun.X.(*ast.Ident)].(*types.PkgName); isPackage {
 							if p.Imported().Path() == pkg {
+								msg := fmt.Sprintf("%s.%s(%s)", pkg, name, argsAsCommaSeparatedValues(call.Args))
 								pass.Report(analysis.Diagnostic{
 									Pos:      call.Pos(),
 									Category: "functions",
-									Message:  fmt.Sprintf("%s.%s(%s)", pkg, name, argsAsCommaSeparatedValues(call.Args)),
+									Message:  msg,
 								})
+								c.ReportChan <- Item{Category: "functions", Value: msg, Position: pass.Fset.Position(call.Pos())}
 								return false
 							}
 						}
@@ -152,11 +170,13 @@ func packages(c Config) func(*analysis.Pass) (interface{}, error) {
 						case *ast.Ident:
 							if p, isPackage := pass.TypesInfo.Uses[v].(*types.PkgName); isPackage {
 								if p.Imported().Path() == name {
+									msg := fmt.Sprintf("%s.%s(%s)", name, fun.Sel.Name, argsAsCommaSeparatedValues(call.Args))
 									pass.Report(analysis.Diagnostic{
 										Pos:      call.Pos(),
 										Category: "packages",
-										Message:  fmt.Sprintf("%s.%s(%s)", name, fun.Sel.Name, argsAsCommaSeparatedValues(call.Args)),
+										Message:  msg,
 									})
+									c.ReportChan <- Item{Category: "packages", Value: msg, Position: pass.Fset.Position(call.Pos())}
 									return false
 								}
 							}

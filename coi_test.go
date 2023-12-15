@@ -9,13 +9,23 @@ import (
 func TestCollect(t *testing.T) {
 	data := analysistest.TestData()
 
+	discard := make(chan Item, 0)
+	go func() {
+		for range discard {
+		}
+	}()
+	t.Cleanup(func() {
+		close(discard)
+	})
+
 	t.Run("literal strings", func(t *testing.T) {
-		analyser := NewStringAnalyser(Config{})
+		analyser := NewStringAnalyser(Config{ReportChan: discard})
 		analysistest.Run(t, data, analyser, "s")
 	})
 
 	t.Run("methods", func(t *testing.T) {
 		analyser := NewMethodsAnalyser(Config{
+			ReportChan: discard,
 			Methods: [][2]string{
 				{"net/http.Header", "Set"},
 				{"net/http.Header", "Add"},
@@ -26,14 +36,16 @@ func TestCollect(t *testing.T) {
 
 	t.Run("functions", func(t *testing.T) {
 		analyser := NewFunctionsAnalyser(Config{
-			Functions: [][2]string{{"os", "ReadFile"}},
+			ReportChan: discard,
+			Functions:  [][2]string{{"os", "ReadFile"}},
 		})
 		analysistest.Run(t, data, analyser, "o")
 	})
 
 	t.Run("functions", func(t *testing.T) {
 		analyser := NewPackageAnalyser(Config{
-			Packages: []string{"path/filepath", "encoding/hex"},
+			ReportChan: discard,
+			Packages:   []string{"path/filepath", "encoding/hex"},
 		})
 		analysistest.Run(t, data, analyser, "p")
 	})

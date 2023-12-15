@@ -39,7 +39,7 @@ var IncludeTests = false
 // It provides most of the logic for the main functions of both the
 // singlechecker and the multi-analysis commands.
 // It returns the appropriate exit code.
-func Run(args []string, analyzers []*analysis.Analyzer) int {
+func Run(args []string, analyzers []*analysis.Analyzer, print bool) int {
 	initial, err := load(args, false)
 	if err != nil {
 		if _, ok := err.(typeParseError); !ok {
@@ -52,8 +52,11 @@ func Run(args []string, analyzers []*analysis.Analyzer) int {
 	// Run the analysis.
 	roots := analyze(initial, analyzers)
 
-	// Print the results.
-	return printDiagnostics(roots)
+	if print {
+		return printDiagnostics(roots)
+	}
+
+	return 0
 }
 
 // typeParseError represents a package load error
