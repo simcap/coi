@@ -9,44 +9,42 @@ import (
 func TestCollect(t *testing.T) {
 	data := analysistest.TestData()
 
-	discard := make(chan Item, 0)
-	go func() {
-		for range discard {
-		}
-	}()
-	t.Cleanup(func() {
-		close(discard)
-	})
-
 	t.Run("literal strings", func(t *testing.T) {
-		analyser := NewStringAnalyser(Config{ReportChan: discard})
+		analyser := FindStrings(mustNewRun(t, Config{}))
 		analysistest.Run(t, data, analyser, "s")
 	})
 
 	t.Run("methods", func(t *testing.T) {
-		analyser := NewMethodsAnalyser(Config{
-			ReportChan: discard,
-			Methods: [][2]string{
-				{"net/http.Header", "Set"},
-				{"net/http.Header", "Add"},
-			},
-		})
+		config := Config{Methods: []string{"net/http.Header.Set", "net/http.Header.Add"}}
+		analyser := FindMethods(mustNewRun(t, config))
 		analysistest.Run(t, data, analyser, "http")
 	})
 
 	t.Run("functions", func(t *testing.T) {
-		analyser := NewFunctionsAnalyser(Config{
-			ReportChan: discard,
-			Functions:  [][2]string{{"os", "ReadFile"}},
-		})
+		config := Config{Functions: []string{"os.ReadFile"}}
+		analyser := FindFunctions(mustNewRun(t, config))
 		analysistest.Run(t, data, analyser, "o")
 	})
 
-	t.Run("functions", func(t *testing.T) {
-		analyser := NewPackageAnalyser(Config{
-			ReportChan: discard,
-			Packages:   []string{"path/filepath", "encoding/hex"},
-		})
+	t.Run("packages", func(t *testing.T) {
+		config := Config{Packages: []string{"path/filepath", "encoding/hex"}}
+		analyser := FindPackages(mustNewRun(t, config))
 		analysistest.Run(t, data, analyser, "p")
 	})
+}
+
+func mustNewRun(t *testing.T, c Config) *Runner {
+	t.Helper()
+
+	r, err := NewRunner(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ReportChan = make(chan Item, 0)
+	go func() {
+		for range r.ReportChan {
+		}
+	}()
+	t.Cleanup(func() { r.Close() })
+	return r
 }

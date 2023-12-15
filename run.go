@@ -1,4 +1,4 @@
-package main
+package coi
 
 // While waiting for https://github.com/golang/go/issues/61324
 // we imported main runner/checker here and trimmed down everything not needed
@@ -39,7 +39,7 @@ var IncludeTests = false
 // It provides most of the logic for the main functions of both the
 // singlechecker and the multi-analysis commands.
 // It returns the appropriate exit code.
-func Run(args []string, analyzers []*analysis.Analyzer, print bool) int {
+func (r *Runner) Run(args []string) int {
 	initial, err := load(args, false)
 	if err != nil {
 		if _, ok := err.(typeParseError); !ok {
@@ -48,11 +48,12 @@ func Run(args []string, analyzers []*analysis.Analyzer, print bool) int {
 			log.Fatal(err)
 		}
 	}
+	defer r.Close()
 
 	// Run the analysis.
-	roots := analyze(initial, analyzers)
+	roots := analyze(initial, r.analysers)
 
-	if print {
+	if r.PrintDiagnostics {
 		return printDiagnostics(roots)
 	}
 
