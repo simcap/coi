@@ -74,12 +74,15 @@ func stringValues(r *Runner) func(*analysis.Pass) (interface{}, error) {
 				parent := stack[len(stack)-2]
 				if _, isImport := parent.(*ast.ImportSpec); !isImport {
 					if lit.Kind == token.STRING {
+						if lit.Value == `""` {
+							return false
+						}
 						pass.Report(analysis.Diagnostic{
 							Category: "strings",
 							Pos:      lit.ValuePos,
 							Message:  fmt.Sprintf("string: %s", lit.Value),
 						})
-						r.ReportChan <- Item{Category: "strings", Value: lit.Value, Position: pass.Fset.Position(lit.Pos())}
+						r.ReportChan <- NewStringItem(lit, pass.Fset)
 						return false
 					}
 				}
@@ -135,16 +138,19 @@ func functions(r *Runner) func(*analysis.Pass) (interface{}, error) {
 				for _, f := range r.functions {
 					pkg, name := f.left, f.right
 					if fun != nil && fun.Sel != nil && fun.Sel.Name == name {
-						if p, isPackage := pass.TypesInfo.Uses[fun.X.(*ast.Ident)].(*types.PkgName); isPackage {
-							if p.Imported().Path() == pkg {
-								msg := fmt.Sprintf("%s.%s(%s)", pkg, name, argsAsCommaSeparatedValues(call.Args))
-								pass.Report(analysis.Diagnostic{
-									Pos:      call.Pos(),
-									Category: "functions",
-									Message:  msg,
-								})
-								r.ReportChan <- Item{Category: "functions", Value: msg, Position: pass.Fset.Position(call.Pos())}
-								return false
+						switch v := fun.X.(type) {
+						case *ast.Ident:
+							if p, isPackage := pass.TypesInfo.Uses[v].(*types.PkgName); isPackage {
+								if p.Imported().Path() == pkg {
+									msg := fmt.Sprintf("%s.%s(%s)", pkg, name, argsAsCommaSeparatedValues(call.Args))
+									pass.Report(analysis.Diagnostic{
+										Pos:      call.Pos(),
+										Category: "functions",
+										Message:  msg,
+									})
+									r.ReportChan <- Item{Category: "functions", Value: msg, Position: pass.Fset.Position(call.Pos())}
+									return false
+								}
 							}
 						}
 					}

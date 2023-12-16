@@ -51,12 +51,7 @@ func (r *Runner) Run(args []string) int {
 	defer r.Close()
 
 	// Run the analysis.
-	roots := analyze(initial, r.analysers)
-
-	if r.PrintDiagnostics {
-		return printDiagnostics(roots)
-	}
-
+	analyze(initial, r.analysers)
 	return 0
 }
 

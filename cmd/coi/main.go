@@ -2,30 +2,39 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
-	"sync"
+	"os"
+
+	"golang.org/x/mod/modfile"
 
 	"github.com/simcap/coi"
 )
 
 var (
-	printOnlyDiagnosticsFlag bool
-	printPositionsFlag       bool
-	analyserFlag             string
-	packagesFlag             string
-	packagesAnalyserValues   []string
+	printPositionsFlag     bool
+	htmlFormatFlag         bool
+	analyserFlag           string
+	packagesFlag           string
+	packagesAnalyserValues []string
 )
 
 func main() {
 	log.SetFlags(0)
-	flag.BoolVar(&printOnlyDiagnosticsFlag, "d", false, "Only print regular go analyser results as diagnostics")
 	flag.BoolVar(&printPositionsFlag, "pos", false, "Print filename position for each value")
+	flag.BoolVar(&htmlFormatFlag, "html", false, "Generate HTML report file coi.html")
 	flag.StringVar(&analyserFlag, "a", "", "Which analyser to run")
 	flag.StringVar(&packagesFlag, "p", "./...", "Which packages ro tun on")
 	flag.Parse()
 
-	config := coi.Config{PrintDiagnostics: printOnlyDiagnosticsFlag}
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	f, err := os.ReadFile("go.mod")
+	if err != nil {
+		log.Println(err)
+	}
+	config := coi.Config{Module: modfile.ModulePath(f), WorkingDir: dir}
 
 	var all []coi.AnalyserFunc
 	switch analyserFlag {
@@ -47,22 +56,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-	if !runner.PrintDiagnostics {
-		wg.Add(1)
-		go func() {
-			for item := range runner.ReportChan {
-				if printPositionsFlag {
-					fmt.Println(item.Position, item.Value)
-				} else {
-					fmt.Println(item.Value)
-				}
-			}
-			wg.Done()
-		}()
+	go func() {
+		runner.Run([]string{packagesFlag})
+	}()
+	report := coi.BuildReport(runner)
+
+	if htmlFormatFlag {
+		f, err := os.Create("coi.html")
+		if err != nil {
+			log.Fatal(err)
+		}
+		report.ToHTML(f)
+	} else {
+		report.ToText(os.Stdout)
 	}
-
-	runner.Run([]string{packagesFlag})
-
-	wg.Wait()
 }
